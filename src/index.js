@@ -1,5 +1,15 @@
 import Boom from 'boom'
-import { promises as jsonld } from 'jsonld'
+import Dataset from 'o-utils-dataset'
+import JsonldSerializer from 'rdf-serializer-jsonld'
+import JsonldParser from 'rdf-parser-jsonld'
+
+const parsers = {
+  jsonld: new JsonldParser()
+}
+
+const serializers = {
+  jsonld: new JsonldSerializer()
+}
 
 class Handlers {
   /**
@@ -7,21 +17,37 @@ class Handlers {
    * @param {Object} config
    */
   constructor(storage, config) {
-    this.storage = storage
+    this.dataset = new Dataset(storage)
     this.config = config
   }
 
   // TODO support content negotiation JSON-LD, Turtle
   get (request, reply) {
     var uri = this.config.baseUri + request.params.all
-    this.storage.get(uri)
-    .then((doc) => {
-      return jsonld.fromRDF(doc, { format: 'application/nquads' })
-    }).then((expanded) => {
-      return reply(expanded)
-    }).catch((err) => {
-      reply(Boom.badImplementation())
-    })
+    this.dataset.getResource(uri)
+      .then((graph) => {
+        return serializers.jsonld.serialize(graph)
+      }).then((json) => {
+        return reply(json)
+      }).catch((err) => {
+        console.log(err)
+        reply(Boom.badImplementation())
+      })
+  }
+
+  add (request, reply) {
+    let uri = this.config.baseUri + request.params.all
+    parsers.jsonld.parse(request.payload)
+      .then((graph) => {
+        return this.dataset.createResource(request.payload['@id'].replace('#id', ''), graph)
+      }).then((resourceUri) => {
+        return this.dataset.addMemberToContainer(uri, resourceUri)
+      }).then((containerUri) => {
+        return reply(request.payload)
+      }).catch((err) => {
+        console.log(err)
+        reply(Boom.badImplementation())
+      })
   }
 }
 
